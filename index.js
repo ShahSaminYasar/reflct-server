@@ -95,6 +95,15 @@ async function run() {
     }
   }
 
+  async function verifyAdmin(req, res, next) {
+    if (req.user?.role !== "admin") {
+      return res
+        .status(403)
+        .json({ ok: false, message: "Only admins allowed" });
+    }
+    next();
+  }
+
   // ======= ROUTES =======
   app.get("/", (req, res) => res.send("Reflct API running"));
 
@@ -719,6 +728,393 @@ async function run() {
       res.status(500).json({ ok: false, message: "Failed to fetch stats" });
     }
   });
+
+  //   ==========================
+  //   ====== ADMIN ROUTES ======
+  //   ==========================
+
+  //   Stats
+  app.get("/api/admin/stats", verifySession, verifyAdmin, async (req, res) => {
+    try {
+      const [totalUsers, totalPublicLessons, reportedResult, todayLessons] =
+        await Promise.all([
+          usersCollection.countDocuments(),
+
+          lessonsCollection.countDocuments({
+            visibility: "public",
+          }),
+
+          reportsCollection
+            .aggregate([
+              {
+                $group: {
+                  _id: "$lessonId",
+                },
+              },
+              {
+                $count: "count",
+              },
+            ])
+            .toArray(),
+
+          lessonsCollection.countDocuments({
+            createdAt: {
+              $gte: new Date(new Date().setHours(0, 0, 0, 0)),
+            },
+          }),
+        ]);
+
+      const totalReportedLessons =
+        reportedResult.length > 0 ? reportedResult[0].count : 0;
+
+      const topContributors = await lessonsCollection
+        .aggregate([
+          {
+            $group: {
+              _id: "$authorId",
+              count: { $sum: 1 },
+            },
+          },
+          { $sort: { count: -1 } },
+          { $limit: 5 },
+          {
+            $addFields: {
+              authorObjectId: { $toObjectId: "$_id" }, // convert string → ObjectId
+            },
+          },
+          {
+            $lookup: {
+              from: "user",
+              localField: "authorObjectId",
+              foreignField: "_id", // match against ObjectId _id
+              as: "author",
+            },
+          },
+          {
+            $unwind: {
+              path: "$author",
+              preserveNullAndEmptyArrays: true,
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              authorId: "$_id",
+              count: 1,
+              name: "$author.name",
+              email: "$author.email",
+              image: "$author.image",
+            },
+          },
+        ])
+        .toArray();
+
+      const last7Days = Array.from({ length: 7 }, (_, i) => {
+        const date = new Date();
+        date.setDate(date.getDate() - (6 - i));
+        date.setHours(0, 0, 0, 0);
+        return date;
+      });
+
+      const lessonGrowth = await Promise.all(
+        last7Days.map(async (date) => {
+          const nextDay = new Date(date);
+          nextDay.setDate(nextDay.getDate() + 1);
+          const count = await lessonsCollection.countDocuments({
+            createdAt: { $gte: date, $lt: nextDay },
+          });
+          return {
+            day: date.toLocaleDateString("en-US", { weekday: "short" }),
+            lessons: count,
+          };
+        }),
+      );
+
+      const userGrowth = await Promise.all(
+        last7Days.map(async (date) => {
+          const nextDay = new Date(date);
+          nextDay.setDate(nextDay.getDate() + 1);
+
+          const users = await usersCollection.countDocuments({
+            createdAt: {
+              $gte: date,
+              $lt: nextDay,
+            },
+          });
+
+          return {
+            day: date.toLocaleDateString("en-US", {
+              weekday: "short",
+            }),
+            users,
+          };
+        }),
+      );
+
+      res.json({
+        ok: true,
+        data: {
+          totalUsers,
+          totalPublicLessons,
+          totalReportedLessons,
+          todayLessons,
+          topContributors,
+          lessonGrowth,
+          userGrowth,
+        },
+      });
+    } catch (error) {
+      console.log("ERROR", error);
+      res
+        .status(500)
+        .json({ ok: false, message: "Failed to fetch admin stats" });
+    }
+  });
+
+  //   ====== Get Users ======
+  app.get("/api/admin/users", verifySession, verifyAdmin, async (req, res) => {
+    try {
+      const users = await usersCollection
+        .find()
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      const usersWithCounts = await Promise.all(
+        users.map(async (user) => {
+          const lessonsCount = await lessonsCollection.countDocuments({
+            authorId: user._id.toString(),
+          });
+          return { ...user, lessonsCount };
+        }),
+      );
+
+      res.json({ ok: true, data: usersWithCounts });
+    } catch (error) {
+      res.status(500).json({ ok: false, message: "Failed to fetch users" });
+    }
+  });
+
+  //   ====== Promote/Demote User (Role) ======
+  app.patch(
+    "/api/admin/users/:userId/role",
+    verifySession,
+    verifyAdmin,
+    async (req, res) => {
+      try {
+        const { role } = req.body;
+        if (!["user", "admin"].includes(role)) {
+          return res.status(400).json({ ok: false, message: "Invalid role" });
+        }
+
+        await usersCollection.updateOne(
+          { id: req.params.userId },
+          { $set: { role } },
+        );
+
+        res.json({ ok: true, message: `User role updated to ${role}` });
+      } catch (error) {
+        res.status(500).json({ ok: false, message: "Failed to update role" });
+      }
+    },
+  );
+
+  //   ====== Get Lessons ======
+  app.get(
+    "/api/admin/lessons",
+    verifySession,
+    verifyAdmin,
+    async (req, res) => {
+      try {
+        const { category, visibility, flagged } = req.query;
+
+        const filter = {};
+        if (category) filter.category = category;
+        if (visibility) filter.visibility = visibility;
+
+        const lessons = await lessonsCollection
+          .find(filter)
+          .sort({ createdAt: -1 })
+          .toArray();
+
+        if (flagged === "true") {
+          const reportedAgg = await reportsCollection
+            .aggregate([{ $group: { _id: "$lessonId" } }])
+            .toArray();
+          const reportedIds = reportedAgg.map((r) => r._id);
+          const flaggedLessons = lessons.filter((l) =>
+            reportedIds.includes(l._id.toString()),
+          );
+
+          const flaggedWithReports = await Promise.all(
+            flaggedLessons.map(async (lesson) => {
+              const reportCount = await reportsCollection.countDocuments({
+                lessonId: lesson._id.toString(),
+              });
+              return { ...lesson, reportCount };
+            }),
+          );
+
+          return res.json({ ok: true, data: flaggedWithReports });
+        }
+
+        const lessonsWithReports = await Promise.all(
+          lessons.map(async (lesson) => {
+            const reportCount = await reportsCollection.countDocuments({
+              lessonId: lesson._id.toString(),
+            });
+            return { ...lesson, reportCount };
+          }),
+        );
+
+        res.json({ ok: true, data: lessonsWithReports });
+      } catch (error) {
+        res.status(500).json({ ok: false, message: "Failed to fetch lessons" });
+      }
+    },
+  );
+
+  //   ====== Toggle Featured ======
+  app.patch(
+    "/api/admin/lessons/:id/featured",
+    verifySession,
+    verifyAdmin,
+    async (req, res) => {
+      try {
+        const lesson = await lessonsCollection.findOne({
+          _id: new ObjectId(req.params.id),
+        });
+        if (!lesson)
+          return res
+            .status(404)
+            .json({ ok: false, message: "Lesson doesn't exist" });
+
+        await lessonsCollection.updateOne(
+          { _id: new ObjectId(req.params.id) },
+          { $set: { isFeatured: !lesson.isFeatured, updatedAt: new Date() } },
+        );
+
+        res.json({
+          ok: true,
+          data: {
+            isFeatured: !lesson.isFeatured,
+          },
+          message: lesson.isFeatured
+            ? "Lesson removed from featured"
+            : "Lesson added to featured",
+        });
+      } catch (error) {
+        res
+          .status(500)
+          .json({ ok: false, message: "Failed to toggle featured" });
+      }
+    },
+  );
+
+  //   ====== Toggle Reviewed ======
+  app.patch(
+    "/api/admin/lessons/:id/reviewed",
+    verifySession,
+    verifyAdmin,
+    async (req, res) => {
+      try {
+        const lesson = await lessonsCollection.findOne({
+          _id: new ObjectId(req.params.id),
+        });
+        if (!lesson)
+          return res
+            .status(404)
+            .json({ ok: false, message: "Lesson does not exist" });
+
+        await lessonsCollection.updateOne(
+          { _id: new ObjectId(req.params.id) },
+          { $set: { isReviewed: !lesson.isReviewed, updatedAt: new Date() } },
+        );
+
+        res.json({
+          ok: true,
+          data: { isReviewed: !lesson.isReviewed },
+          message: lesson.isReviewed
+            ? "Lesson marked as not reviewed"
+            : "Lesson marked as reviewed",
+        });
+      } catch (error) {
+        res
+          .status(500)
+          .json({ ok: false, message: "Failed to toggle reviewed" });
+      }
+    },
+  );
+
+  //   ====== Delete Lesson ======
+  app.delete(
+    "/api/admin/lessons/:id",
+    verifySession,
+    verifyAdmin,
+    async (req, res) => {
+      try {
+        await lessonsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+        await reportsCollection.deleteMany({ lessonId: req.params.id });
+        res.json({ ok: true, message: "Lesson deleted successfully" });
+      } catch (error) {
+        res.status(500).json({ ok: false, message: "Failed to delete lesson" });
+      }
+    },
+  );
+
+  //   ====== Get Reported Lessons ======
+  app.get(
+    "/api/admin/reported-lessons",
+    verifySession,
+    verifyAdmin,
+    async (req, res) => {
+      try {
+        const reportedAgg = await reportsCollection
+          .aggregate([{ $group: { _id: "$lessonId" } }])
+          .toArray();
+        const reportedIds = reportedAgg.map((r) => r._id);
+
+        const lessons = await Promise.all(
+          reportedIds.map(async (lessonId) => {
+            const lesson = await lessonsCollection.findOne({
+              _id: new ObjectId(lessonId),
+            });
+            const reports = await reportsCollection
+              .find({ lessonId })
+              .toArray();
+            return lesson
+              ? { ...lesson, reports, reportCount: reports.length }
+              : null;
+          }),
+        );
+
+        res.json({
+          ok: true,
+          data: lessons
+            .filter(Boolean)
+            .sort((a, b) => b.reportCount - a.reportCount),
+        });
+      } catch (error) {
+        res
+          .status(500)
+          .json({ ok: false, message: "Failed to fetch reported lessons" });
+      }
+    },
+  );
+
+  //   ====== Report Deletion (Ignored by Admin) ======
+  app.delete(
+    "/api/admin/reported-lessons/:id/ignore",
+    verifySession,
+    verifyAdmin,
+    async (req, res) => {
+      try {
+        await reportsCollection.deleteMany({ lessonId: req.params.id });
+        res.json({ ok: true, message: "Reports cleared" });
+      } catch (error) {
+        res.status(500).json({ ok: false, message: "Failed to clear reports" });
+      }
+    },
+  );
 
   console.log("Pinged your deployment. You successfully connected to MongoDB!");
 }
