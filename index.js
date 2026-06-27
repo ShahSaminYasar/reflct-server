@@ -292,6 +292,42 @@ async function run() {
     }
   });
 
+  //   ====== Report a Lesson ======
+  app.post("/api/lessons/:id/report", verifySession, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+
+      if (!reason)
+        return res
+          .status(400)
+          .json({ ok: false, message: "Reason is required" });
+
+      const existing = await reportsCollection.findOne({
+        lessonId: id,
+        reporterUserId: req.user.id,
+      });
+
+      if (existing) {
+        return res
+          .status(400)
+          .json({ ok: false, message: "You already reported this lesson" });
+      }
+
+      await reportsCollection.insertOne({
+        lessonId: id,
+        reporterUserId: req.user.id,
+        reportedUserEmail: req.user.email,
+        reason,
+        timestamp: new Date(),
+      });
+
+      res.json({ ok: true, message: "Lesson reported successfully" });
+    } catch (error) {
+      res.status(500).json({ ok: false, message: "Failed to report lesson" });
+    }
+  });
+
   //   ====== Lesson Delete ======
   app.delete("/api/lessons/:id", verifySession, async (req, res) => {
     try {
