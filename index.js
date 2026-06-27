@@ -182,6 +182,82 @@ async function run() {
     }
   });
 
+  // Featured lessons for home page
+  app.get("/api/lessons/featured", async (req, res) => {
+    try {
+      const lessons = await lessonsCollection
+        .find({ isFeatured: true, visibility: "public" })
+        .sort({ updatedAt: -1 })
+        .limit(6)
+        .toArray();
+
+      res.json({ ok: true, data: lessons });
+    } catch (error) {
+      res
+        .status(500)
+        .json({ ok: false, message: "Failed to fetch featured lessons" });
+    }
+  });
+
+  // Top contributors of the week
+  app.get("/api/contributors/top", async (req, res) => {
+    try {
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+      const topContributors = await lessonsCollection
+        .aggregate([
+          { $match: { createdAt: { $gte: oneWeekAgo } } },
+          { $group: { _id: "$authorId", count: { $sum: 1 } } },
+          { $sort: { count: -1 } },
+          { $limit: 6 },
+          { $addFields: { authorObjectId: { $toObjectId: "$_id" } } },
+          {
+            $lookup: {
+              from: "user",
+              localField: "authorObjectId",
+              foreignField: "_id",
+              as: "author",
+            },
+          },
+          { $unwind: { path: "$author", preserveNullAndEmptyArrays: true } },
+          {
+            $project: {
+              _id: 0,
+              authorId: "$_id",
+              count: 1,
+              name: "$author.name",
+              image: "$author.image",
+            },
+          },
+        ])
+        .toArray();
+
+      res.json({ ok: true, data: topContributors });
+    } catch (error) {
+      res
+        .status(500)
+        .json({ ok: false, message: "Failed to fetch contributors" });
+    }
+  });
+
+  // Most saved lessons
+  app.get("/api/lessons/most-saved", async (req, res) => {
+    try {
+      const lessons = await lessonsCollection
+        .find({ visibility: "public" })
+        .sort({ favoritesCount: -1 })
+        .limit(6)
+        .toArray();
+
+      res.json({ ok: true, data: lessons });
+    } catch (error) {
+      res
+        .status(500)
+        .json({ ok: false, message: "Failed to fetch most saved lessons" });
+    }
+  });
+
   //   ======= Lesson's Visibility ======
   app.patch("/api/lessons/:id/visibility", verifySession, async (req, res) => {
     try {
