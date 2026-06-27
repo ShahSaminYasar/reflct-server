@@ -28,6 +28,9 @@ async function run() {
   const db = client.db("reflct");
   const lessonsCollection = db.collection("lessons");
   const usersCollection = db.collection("user");
+  const favoritesCollection = db.collection("favorites");
+  const commentsCollection = db.collection("comments");
+  const reportsCollection = db.collection("lessonsReports");
 
   const auth = betterAuth({
     database: mongodbAdapter(db),
@@ -222,6 +225,36 @@ async function run() {
     }
   });
 
+  // ====== Lesson Liking ======
+  app.patch("/api/lessons/:id/like", verifySession, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+
+      const lesson = await lessonsCollection.findOne({ _id: new ObjectId(id) });
+      if (!lesson)
+        return res.status(404).json({ ok: false, message: "Lesson not found" });
+
+      const alreadyLiked = lesson.likes?.includes(userId);
+
+      await lessonsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        alreadyLiked
+          ? { $pull: { likes: userId }, $inc: { likesCount: -1 } }
+          : { $addToSet: { likes: userId }, $inc: { likesCount: 1 } },
+      );
+
+      res.json({
+        ok: true,
+        data: {
+          liked: !alreadyLiked,
+        },
+      });
+    } catch (error) {
+      res.status(500).json({ ok: false, message: "Failed to toggle like" });
+    }
+  });
+
   //   ====== Lesson Delete ======
   app.delete("/api/lessons/:id", verifySession, async (req, res) => {
     try {
@@ -349,6 +382,49 @@ async function run() {
         ok: false,
         message: "Failed to update lesson",
       });
+    }
+  });
+
+  //   ====== Lessons ======
+  app.get("/api/lessons", async (req, res) => {
+    try {
+      const {
+        category,
+        emotionalTone,
+        search,
+        sort = "newest",
+        page = 1,
+      } = req.query;
+      const limit = 9;
+      const skip = (parseInt(page) - 1) * limit;
+
+      const filter = { visibility: "public" };
+      if (category) filter.category = category;
+      if (emotionalTone) filter.emotionalTone = emotionalTone;
+      if (search) filter.title = { $regex: search, $options: "i" };
+
+      const sortOption =
+        sort === "most-saved" ? { favoritesCount: -1 } : { createdAt: -1 };
+
+      const [lessons, total] = await Promise.all([
+        lessonsCollection
+          .find(filter)
+          .sort(sortOption)
+          .skip(skip)
+          .limit(limit)
+          .toArray(),
+        lessonsCollection.countDocuments(filter),
+      ]);
+
+      res.json({
+        ok: true,
+        data: lessons,
+        total,
+        page: parseInt(page),
+        totalPages: Math.ceil(total / limit),
+      });
+    } catch (error) {
+      res.status(500).json({ ok: false, message: "Failed to fetch lessons" });
     }
   });
 
