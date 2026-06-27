@@ -249,9 +249,46 @@ async function run() {
         data: {
           liked: !alreadyLiked,
         },
+        message: `${!alreadyLiked ? "Unliked" : "Liked"}`,
       });
     } catch (error) {
       res.status(500).json({ ok: false, message: "Failed to toggle like" });
+    }
+  });
+
+  // ====== Lesson Favoriting ======
+  app.patch("/api/lessons/:id/favorite", verifySession, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+
+      const existing = await favoritesCollection.findOne({
+        lessonId: id,
+        userId,
+      });
+
+      if (existing) {
+        await favoritesCollection.deleteOne({ lessonId: id, userId });
+        await lessonsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $inc: { favoritesCount: -1 } },
+        );
+        return res.json({ ok: true, message: "Removed from favorites" });
+      }
+
+      await favoritesCollection.insertOne({
+        lessonId: id,
+        userId,
+        savedAt: new Date(),
+      });
+      await lessonsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $inc: { favoritesCount: 1 } },
+      );
+
+      res.json({ ok: true, message: "Added to favorites" });
+    } catch (error) {
+      res.status(500).json({ ok: false, message: "Failed to toggle favorite" });
     }
   });
 
