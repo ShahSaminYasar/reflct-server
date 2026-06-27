@@ -266,6 +266,80 @@ async function run() {
       res.status(500).json({ ok: false, message: "Failed to fetch lesson" });
     }
   });
+
+  //   ====== Lesson Edit ======
+  app.patch("/api/lessons/:id", verifySession, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const {
+        title,
+        description,
+        category,
+        emotionalTone,
+        visibility,
+        accessLevel,
+        image,
+      } = req.body;
+
+      // Validation
+      if (!title || !description || !category || !emotionalTone) {
+        return res.status(400).json({
+          ok: false,
+          message: "Missing required fields",
+        });
+      }
+
+      const lesson = await lessonsCollection.findOne({
+        _id: new ObjectId(id),
+      });
+
+      if (!lesson) {
+        return res.status(404).json({ ok: false, message: "Lesson not found" });
+      }
+
+      if (lesson.authorId !== req.user.id) {
+        return res
+          .status(403)
+          .json({ ok: false, message: "Not authorized to edit this lesson" });
+      }
+
+      let finalAccessLevel = accessLevel || lesson.accessLevel;
+      if (!req.user.isPremium && finalAccessLevel === "premium") {
+        finalAccessLevel = "free";
+      }
+
+      const updateData = {
+        title,
+        description,
+        category,
+        emotionalTone,
+        visibility: visibility || lesson.visibility,
+        accessLevel: finalAccessLevel,
+        image: image !== undefined ? image : lesson.image,
+        updatedAt: new Date(),
+      };
+
+      const result = await lessonsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: updateData },
+      );
+
+      if (result.modifiedCount === 0) {
+        return res.json({ ok: true, message: "No changes were made" });
+      }
+
+      res.json({
+        ok: true,
+        message: "Lesson updated successfully",
+      });
+    } catch (error) {
+      console.error("Update Lesson Error:", error);
+      res.status(500).json({
+        ok: false,
+        message: "Failed to update lesson",
+      });
+    }
+  });
 }
 
 run().catch(console.dir);
