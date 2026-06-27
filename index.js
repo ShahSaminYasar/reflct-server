@@ -23,7 +23,9 @@ async function run() {
   await client.db("admin").command({ ping: 1 });
   console.log("Pinged your deployment. You successfully connected to MongoDB!");
 
+  //   COLLECTIONS
   const db = client.db("reflct");
+  const lessonsCollection = db.collection("lessons");
 
   const auth = betterAuth({
     database: mongodbAdapter(db),
@@ -49,7 +51,7 @@ async function run() {
   // Middlewares
   app.use(
     cors({
-      origin: ["http://localhost:3000"],
+      origin: process.env.CLIENT_URL || "http://localhost:3000",
       credentials: true,
     }),
   );
@@ -61,16 +63,77 @@ async function run() {
 
   // Session verification middleware
   async function verifySession(req, res, next) {
-    const session = await auth.api.getSession({
-      headers: fromNodeHeaders(req.headers),
-    });
-    if (!session) return res.status(401).json({ error: "Unauthorized" });
-    req.user = session.user;
-    next();
+    try {
+      const session = await auth.api.getSession({
+        headers: fromNodeHeaders(req.headers),
+      });
+
+      if (!session) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+
+      req.user = session.user;
+      next();
+    } catch (error) {
+      return res.status(401).json({ message: "Invalid session" });
+    }
   }
 
   // ======= ROUTES =======
   app.get("/", (req, res) => res.send("Reflct API running"));
+
+  //   ======= New Lesson =======
+  app.post("/api/lessons", verifySession, async (req, res) => {
+    try {
+      const {
+        title,
+        description,
+        category,
+        emotionalTone,
+        visibility = "public",
+        accessLevel = "free",
+        image,
+      } = req.body;
+
+      if (!title || !description || !category || !emotionalTone) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      let finalAccessLevel = accessLevel;
+      if (!req.user.isPremium && accessLevel === "premium") {
+        finalAccessLevel = "free";
+      }
+
+      const newLesson = {
+        title,
+        description,
+        category,
+        emotionalTone,
+        visibility,
+        accessLevel: finalAccessLevel,
+        image: image || null,
+        authorId: req.user.id,
+        likes: [],
+        likesCount: 0,
+        favoritesCount: 0,
+        isFeatured: false,
+        isReviewed: false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const result = await lessonsCollection.insertOne(newLesson);
+
+      res.status(201).json({
+        ok: true,
+        insertedId: result.insertedId,
+        message: "Lesson created successfully",
+      });
+    } catch (error) {
+      console.error("Add Lesson Error:", error);
+      res.status(500).json({ message: "Failed to create lesson" });
+    }
+  });
 }
 
 run().catch(console.dir);
