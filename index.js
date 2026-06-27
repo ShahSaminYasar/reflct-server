@@ -249,7 +249,7 @@ async function run() {
         data: {
           liked: !alreadyLiked,
         },
-        message: `${!alreadyLiked ? "Unliked" : "Liked"}`,
+        message: `${alreadyLiked ? "Unliked" : "Liked"}`,
       });
     } catch (error) {
       res.status(500).json({ ok: false, message: "Failed to toggle like" });
@@ -536,6 +536,45 @@ async function run() {
       });
     } catch (error) {
       res.status(500).json({ ok: false, message: "Failed to fetch lessons" });
+    }
+  });
+
+  //   ====== Favorites ======
+  app.get("/api/favorites", verifySession, async (req, res) => {
+    try {
+      const { category, emotionalTone } = req.query;
+
+      const userFavorites = await favoritesCollection
+        .find({ userId: req.user.id })
+        .sort({ savedAt: -1 })
+        .toArray();
+
+      if (userFavorites.length === 0) {
+        return res.json({ ok: true, data: [] });
+      }
+
+      const lessonIds = userFavorites.map((f) => new ObjectId(f.lessonId));
+
+      const filter = { _id: { $in: lessonIds } };
+      if (category) filter.category = category;
+      if (emotionalTone) filter.emotionalTone = emotionalTone;
+
+      const lessons = await lessonsCollection.find(filter).toArray();
+
+      // Preserve savedAt order
+      const savedAtMap = {};
+      userFavorites.forEach((f) => {
+        savedAtMap[f.lessonId] = f.savedAt;
+      });
+
+      const data = lessons.map((l) => ({
+        ...l,
+        savedAt: savedAtMap[l._id.toString()],
+      }));
+
+      res.json({ ok: true, data, message: "Favorites fetched successfully" });
+    } catch (error) {
+      res.status(500).json({ ok: false, message: "Failed to fetch favorites" });
     }
   });
 
