@@ -156,6 +156,58 @@ async function run() {
       });
     }
   });
+
+  //   ======= Lesson's Visibility ======
+  app.patch("/api/lessons/:id/visibility", verifySession, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { visibility } = req.body;
+
+      if (!["public", "private"].includes(visibility)) {
+        return res.status(400).json({
+          ok: false,
+          message: "Visibility must be 'public' or 'private'",
+        });
+      }
+
+      const lesson = await lessonsCollection.findOne({
+        _id: new ObjectId(id),
+      });
+
+      if (!lesson) {
+        return res.status(404).json({ ok: false, message: "Lesson not found" });
+      }
+
+      if (lesson?.authorId !== req.user.id) {
+        return res.status(403).json({ ok: false, message: "Forbidden" });
+      }
+
+      const result = await lessonsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $set: {
+            visibility,
+            updatedAt: new Date(),
+          },
+        },
+      );
+
+      if (result.modifiedCount === 0) {
+        return res.status(400).json({ ok: false, message: "No changes made" });
+      }
+
+      res.json({
+        ok: true,
+        message: `Lesson visibility updated to ${visibility}`,
+      });
+    } catch (error) {
+      console.error("Update Visibility Error:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to update visibility",
+      });
+    }
+  });
 }
 
 run().catch(console.dir);
