@@ -1,11 +1,13 @@
-require("dotenv").config();
-const { betterAuth } = require("better-auth");
-const { mongodbAdapter } = require("better-auth/adapters/mongodb");
-const { bearer } = require("better-auth/plugins");
-const { toNodeHandler, fromNodeHeaders } = require("better-auth/node");
-const express = require("express");
-const cors = require("cors");
-const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+import dotenv from "dotenv";
+dotenv.config();
+
+import { betterAuth } from "better-auth";
+import { mongodbAdapter } from "better-auth/adapters/mongodb";
+import { bearer } from "better-auth/plugins";
+import { toNodeHandler, fromNodeHeaders } from "better-auth/node";
+import express from "express";
+import cors from "cors";
+import { MongoClient, ServerApiVersion, ObjectId } from "mongodb";
 
 const app = express();
 const port = process.env.PORT || 5000;
