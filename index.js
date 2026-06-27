@@ -208,6 +208,33 @@ async function run() {
       });
     }
   });
+
+  //   ====== Lesson Delete ======
+  // ========================
+  // DELETE LESSON
+  // ========================
+  app.delete("/api/lessons/:id", verifySession, async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const lesson = await lessonsCollection.findOne({ _id: new ObjectId(id) });
+
+      if (!lesson) {
+        return res.status(404).json({ ok: false, message: "Lesson not found" });
+      }
+
+      if (lesson.authorId !== req.user.id) {
+        return res.status(403).json({ ok: false, message: "Forbidden" });
+      }
+
+      await lessonsCollection.deleteOne({ _id: new ObjectId(id) });
+
+      res.json({ ok: true, message: "Lesson deleted successfully" });
+    } catch (error) {
+      console.error("Delete Lesson Error:", error);
+      res.status(500).json({ ok: false, message: "Failed to delete lesson" });
+    }
+  });
 }
 
 run().catch(console.dir);
