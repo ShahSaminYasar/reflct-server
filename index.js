@@ -210,9 +210,6 @@ async function run() {
   });
 
   //   ====== Lesson Delete ======
-  // ========================
-  // DELETE LESSON
-  // ========================
   app.delete("/api/lessons/:id", verifySession, async (req, res) => {
     try {
       const { id } = req.params;
@@ -233,6 +230,40 @@ async function run() {
     } catch (error) {
       console.error("Delete Lesson Error:", error);
       res.status(500).json({ ok: false, message: "Failed to delete lesson" });
+    }
+  });
+
+  //   ====== Get Single Lesson ======
+  app.get("/api/lessons/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const lesson = await lessonsCollection.findOne({
+        _id: new ObjectId(id),
+      });
+
+      if (!lesson) {
+        return res.status(404).json({ ok: false, message: "Lesson not found" });
+      }
+
+      const author = await db
+        .collection("users")
+        .findOne(
+          { _id: new ObjectId(lesson.authorId) },
+          { projection: { name: 1, image: 1, isPremium: 1 } },
+        );
+
+      res.json({
+        ok: true,
+        data: {
+          ...lesson,
+          author: author || null,
+        },
+        message: "Lesson fetched successfully",
+      });
+    } catch (error) {
+      console.error("Get Lesson Error:", error);
+      res.status(500).json({ ok: false, message: "Failed to fetch lesson" });
     }
   });
 }
