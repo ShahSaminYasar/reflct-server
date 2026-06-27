@@ -27,6 +27,7 @@ async function run() {
   //   COLLECTIONS
   const db = client.db("reflct");
   const lessonsCollection = db.collection("lessons");
+  const usersCollection = db.collection("user");
 
   const auth = betterAuth({
     database: mongodbAdapter(db),
@@ -45,6 +46,17 @@ async function run() {
       additionalFields: {
         isPremium: { type: "boolean", defaultValue: false, input: false },
         role: { type: "string", defaultValue: "user", input: false },
+      },
+    },
+    advanced: {
+      cookies: {
+        session_token: {
+          attributes: {
+            sameSite: "none",
+            secure: true,
+            httpOnly: true,
+          },
+        },
       },
     },
   });
@@ -247,12 +259,10 @@ async function run() {
         return res.status(404).json({ ok: false, message: "Lesson not found" });
       }
 
-      const author = await db
-        .collection("user")
-        .findOne(
-          { _id: new ObjectId(lesson.authorId) },
-          { projection: { name: 1, image: 1, isPremium: 1 } },
-        );
+      const author = await usersCollection.findOne(
+        { _id: new ObjectId(lesson.authorId) },
+        { projection: { name: 1, image: 1, isPremium: 1 } },
+      );
 
       res.json({
         ok: true,
