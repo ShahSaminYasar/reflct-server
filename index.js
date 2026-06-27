@@ -578,6 +578,77 @@ async function run() {
     }
   });
 
+  // ====== Get user profile + their public lessons ======
+  app.get("/api/profile/:userId", async (req, res) => {
+    try {
+      const { userId } = req.params;
+
+      const user = await usersCollection.findOne(
+        { _id: new ObjectId(userId) },
+        {
+          projection: {
+            name: 1,
+            email: 1,
+            image: 1,
+            isPremium: 1,
+            role: 1,
+            createdAt: 1,
+          },
+        },
+      );
+
+      if (!user)
+        return res.status(404).json({ ok: false, message: "User not found" });
+
+      const [lessons, favoritesCount, lessonsCount] = await Promise.all([
+        lessonsCollection
+          .find({ authorId: userId, visibility: "public" })
+          .sort({ createdAt: -1 })
+          .toArray(),
+        favoritesCollection.countDocuments({ userId }),
+        lessonsCollection.countDocuments({ authorId: userId }),
+      ]);
+
+      res.json({
+        ok: true,
+        data: {
+          user: { ...user, lessonsCount, favoritesCount },
+          lessons,
+        },
+      });
+    } catch (error) {
+      res.status(500).json({ ok: false, message: "Failed to fetch profile" });
+    }
+  });
+
+  // ====== Update own profile ======
+  app.patch("/api/profile", verifySession, async (req, res) => {
+    try {
+      const { name, image } = req.body;
+
+      if (!name)
+        return cursor
+          .status(400)
+          .json({ ok: false, message: "Name is required" });
+
+      const cursor = await usersCollection.updateOne(
+        { _id: new ObjectId(req.user.id) },
+        {
+          $set: { name, image: image || req.user.image, updatedAt: new Date() },
+        },
+      );
+
+      if (cursor.modifiedCount > 0) {
+        res.json({ ok: true, message: "Profile updated successfully" });
+      } else {
+        res.json({ ok: false, message: "Data was not modified" });
+      }
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ ok: false, message: "Failed to update profile" });
+    }
+  });
+
   console.log("Pinged your deployment. You successfully connected to MongoDB!");
 }
 run().catch(console.dir);
