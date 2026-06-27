@@ -19,9 +19,8 @@ const client = new MongoClient(process.env.MONGODB_URI, {
 });
 
 async function run() {
-  await client.connect();
-  await client.db("admin").command({ ping: 1 });
-  console.log("Pinged your deployment. You successfully connected to MongoDB!");
+  //   await client.connect();
+  //   await client.db("admin").command({ ping: 1 });
 
   //   COLLECTIONS
   const db = client.db("reflct");
@@ -340,8 +339,9 @@ async function run() {
       });
     }
   });
-}
 
+  console.log("Pinged your deployment. You successfully connected to MongoDB!");
+}
 run().catch(console.dir);
 
 app.listen(port, () => console.log(`Server running on port ${port}`));
