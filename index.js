@@ -527,9 +527,29 @@ async function run() {
         lessonsCollection.countDocuments(filter),
       ]);
 
+      const lessonsWithAuthors = await Promise.all(
+        lessons.map(async (lesson) => {
+          const author = await usersCollection.findOne(
+            { _id: new ObjectId(lesson.authorId) },
+            {
+              projection: {
+                name: 1,
+                image: 1,
+                email: 1,
+              },
+            },
+          );
+
+          return {
+            ...lesson,
+            author,
+          };
+        }),
+      );
+
       res.json({
         ok: true,
-        data: lessons,
+        data: lessonsWithAuthors,
         total,
         page: parseInt(page),
         totalPages: Math.ceil(total / limit),
@@ -646,6 +666,57 @@ async function run() {
     } catch (error) {
       console.error(error);
       res.status(500).json({ ok: false, message: "Failed to update profile" });
+    }
+  });
+
+  // ====== Dashboard Stats ======
+  app.get("/api/dashboard/stats", verifySession, async (req, res) => {
+    try {
+      const userId = req.user.id;
+
+      const [lessonsCount, favoritesCount, recentLessons] = await Promise.all([
+        lessonsCollection.countDocuments({ authorId: userId }),
+        favoritesCollection.countDocuments({ userId }),
+        lessonsCollection
+          .find({ authorId: userId })
+          .sort({ createdAt: -1 })
+          .limit(5)
+          .toArray(),
+      ]);
+
+      const last7Days = Array.from({ length: 7 }, (_, i) => {
+        const date = new Date();
+        date.setDate(date.getDate() - (6 - i));
+        date.setHours(0, 0, 0, 0);
+        return date;
+      });
+
+      const weeklyData = await Promise.all(
+        last7Days.map(async (date) => {
+          const nextDay = new Date(date);
+          nextDay.setDate(nextDay.getDate() + 1);
+          const count = await lessonsCollection.countDocuments({
+            authorId: userId,
+            createdAt: { $gte: date, $lt: nextDay },
+          });
+          return {
+            day: date.toLocaleDateString("en-US", { weekday: "short" }),
+            lessons: count,
+          };
+        }),
+      );
+
+      res.json({
+        ok: true,
+        data: {
+          lessonsCount,
+          favoritesCount,
+          recentLessons,
+          weeklyData,
+        },
+      });
+    } catch (error) {
+      res.status(500).json({ ok: false, message: "Failed to fetch stats" });
     }
   });
 
