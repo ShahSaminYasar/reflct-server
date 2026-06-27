@@ -248,7 +248,7 @@ async function run() {
       }
 
       const author = await db
-        .collection("users")
+        .collection("user")
         .findOne(
           { _id: new ObjectId(lesson.authorId) },
           { projection: { name: 1, image: 1, isPremium: 1 } },
