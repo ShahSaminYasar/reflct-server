@@ -328,6 +328,44 @@ async function run() {
     }
   });
 
+  // ====== Comments GET ======
+  app.get("/api/lessons/:id/comments", async (req, res) => {
+    try {
+      const comments = await commentsCollection
+        .find({ lessonId: req.params.id })
+        .sort({ createdAt: -1 })
+        .toArray();
+      res.json({ ok: true, data: comments });
+    } catch (error) {
+      res.status(500).json({ ok: false, message: "Failed to fetch comments" });
+    }
+  });
+
+  // ====== Comments POST ======
+  app.post("/api/lessons/:id/comments", verifySession, async (req, res) => {
+    try {
+      const { text } = req.body;
+      if (!text)
+        return res
+          .status(400)
+          .json({ ok: false, message: "Comment text required" });
+
+      const comment = {
+        lessonId: req.params.id,
+        userId: req.user.id,
+        userName: req.user.name,
+        userImage: req.user.image || "",
+        text,
+        createdAt: new Date(),
+      };
+
+      await commentsCollection.insertOne(comment);
+      res.status(201).json({ ok: true, data: comment });
+    } catch (error) {
+      res.status(500).json({ ok: false, message: "Failed to post comment" });
+    }
+  });
+
   //   ====== Lesson Delete ======
   app.delete("/api/lessons/:id", verifySession, async (req, res) => {
     try {
