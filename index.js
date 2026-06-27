@@ -5,7 +5,7 @@ const { bearer } = require("better-auth/plugins");
 const { toNodeHandler, fromNodeHeaders } = require("better-auth/node");
 const express = require("express");
 const cors = require("cors");
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -132,6 +132,28 @@ async function run() {
     } catch (error) {
       console.error("Add Lesson Error:", error);
       res.status(500).json({ message: "Failed to create lesson" });
+    }
+  });
+
+  //   ======= My Lessons =======
+  app.get("/api/lessons/my-lessons", verifySession, async (req, res) => {
+    try {
+      const lessons = await lessonsCollection
+        .find({ authorId: req.user.id })
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      res.json({
+        ok: true,
+        data: lessons,
+        message: "Lessons posted by you fetched successfully",
+      });
+    } catch (error) {
+      console.error("Fetch My Lessons Error:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to fetch your lessons",
+      });
     }
   });
 }
