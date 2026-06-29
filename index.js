@@ -310,6 +310,66 @@ async function run() {
     }
   });
 
+  //   ======= Lesson's Access Level ======
+  app.patch(
+    "/api/lessons/:id/access-level",
+    verifySession,
+    async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { accessLevel } = req.body;
+
+        if (!["free", "premium"].includes(accessLevel)) {
+          return res.status(400).json({
+            ok: false,
+            message: "Access level must be 'free' or 'premium'",
+          });
+        }
+
+        const lesson = await lessonsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!lesson) {
+          return res
+            .status(404)
+            .json({ ok: false, message: "Lesson not found" });
+        }
+
+        if (lesson?.authorId !== req.user.id) {
+          return res.status(403).json({ ok: false, message: "Forbidden" });
+        }
+
+        const result = await lessonsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              accessLevel,
+              updatedAt: new Date(),
+            },
+          },
+        );
+
+        if (result.modifiedCount === 0) {
+          return res
+            .status(400)
+            .json({ ok: false, message: "No changes made" });
+        }
+
+        res.json({
+          ok: true,
+          message: `Lesson acess level updated to ${accessLevel}`,
+        });
+      } catch (error) {
+        console.error("Update Visibility Error:", error);
+        res.status(500).json({
+          success: false,
+          error: "Failed to update visibility",
+        });
+      }
+    },
+  );
+
   // ====== Lesson Liking ======
   app.patch("/api/lessons/:id/like", verifySession, async (req, res) => {
     try {
@@ -493,11 +553,15 @@ async function run() {
         { projection: { name: 1, image: 1, isPremium: 1 } },
       );
 
+      const postsCount = await lessonsCollection.countDocuments({
+        authorId: lesson.authorId,
+      });
+
       res.json({
         ok: true,
         data: {
           ...lesson,
-          author: author || null,
+          author: { ...author, totalPosts: postsCount } || null,
         },
         message: "Lesson fetched successfully",
       });
@@ -982,12 +1046,16 @@ async function run() {
           return res.status(400).json({ ok: false, message: "Invalid role" });
         }
 
-        await usersCollection.updateOne(
-          { id: req.params.userId },
+        const cursor = await usersCollection.updateOne(
+          { _id: new ObjectId(req.params.userId) },
           { $set: { role } },
         );
 
-        res.json({ ok: true, message: `User role updated to ${role}` });
+        if (cursor?.modifiedCount > 0) {
+          res.json({ ok: true, message: `User role updated to ${role}` });
+        } else {
+          res.json({ ok: false, message: "Failed to change role" });
+        }
       } catch (error) {
         res.status(500).json({ ok: false, message: "Failed to update role" });
       }
