@@ -655,7 +655,7 @@ async function run() {
         sort = "newest",
         page = 1,
       } = req.query;
-      const limit = 9;
+      const limit = 6;
       const skip = (parseInt(page) - 1) * limit;
 
       const filter = { visibility: "public" };
@@ -1062,7 +1062,7 @@ async function run() {
     },
   );
 
-  //   ====== Get Lessons ======
+  //   ====== Get Admin Lessons ======
   app.get(
     "/api/admin/lessons",
     verifySession,
@@ -1189,7 +1189,7 @@ async function run() {
     },
   );
 
-  //   ====== Delete Lesson ======
+  //   ====== Delete Lesson by Admin ======
   app.delete(
     "/api/admin/lessons/:id",
     verifySession,
