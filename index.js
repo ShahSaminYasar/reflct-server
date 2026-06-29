@@ -1,13 +1,11 @@
 import dotenv from "dotenv";
 dotenv.config();
 
-import { betterAuth } from "better-auth";
 import { mongodbAdapter } from "better-auth/adapters/mongodb";
-import { bearer } from "better-auth/plugins";
-import { toNodeHandler, fromNodeHeaders } from "better-auth/node";
 import express from "express";
 import cors from "cors";
 import { MongoClient, ServerApiVersion, ObjectId } from "mongodb";
+import { createRemoteJWKSet, jwtVerify } from "jose-cjs";
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -32,38 +30,6 @@ async function run() {
   const commentsCollection = db.collection("comments");
   const reportsCollection = db.collection("lessonsReports");
 
-  const auth = betterAuth({
-    database: mongodbAdapter(db),
-    secret: process.env.BETTER_AUTH_SECRET,
-    baseURL: process.env.BASE_URL,
-    trustedOrigins: [process.env.CLIENT_URL],
-    emailAndPassword: { enabled: true },
-    socialProviders: {
-      google: {
-        clientId: process.env.GOOGLE_CLIENT_ID,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      },
-    },
-    plugins: [bearer()],
-    user: {
-      additionalFields: {
-        isPremium: { type: "boolean", defaultValue: false, input: false },
-        role: { type: "string", defaultValue: "user", input: false },
-      },
-    },
-    advanced: {
-      cookies: {
-        session_token: {
-          attributes: {
-            sameSite: "none",
-            secure: true,
-            httpOnly: true,
-          },
-        },
-      },
-    },
-  });
-
   // Middlewares
   app.use(
     cors({
@@ -72,26 +38,39 @@ async function run() {
     }),
   );
 
-  // Better Auth routes — must be before express.json()
-  app.all("/api/auth/*splat", toNodeHandler(auth));
-
   app.use(express.json());
 
   // Session verification middleware
+  const JWKS = createRemoteJWKSet(
+    new URL(`${process.env.CLIENT_URL}/api/auth/jwks`),
+  );
+
   async function verifySession(req, res, next) {
     try {
-      const session = await auth.api.getSession({
-        headers: fromNodeHeaders(req.headers),
-      });
-
-      if (!session) {
+      const authHeader = req.headers.authorization;
+      if (!authHeader?.startsWith("Bearer ")) {
         return res.status(401).json({ message: "Unauthorized" });
       }
 
-      req.user = session.user;
+      const token = authHeader.slice(7);
+      const { payload } = await jwtVerify(token, JWKS, {
+        issuer: process.env.CLIENT_URL,
+        audience: process.env.CLIENT_URL,
+      });
+
+      // better-auth JWT payload shape
+      req.user = {
+        id: payload.sub,
+        email: payload.email,
+        name: payload.name,
+        image: payload.image,
+        role: payload.role,
+        isPremium: payload.isPremium,
+      };
+
       next();
     } catch (error) {
-      return res.status(401).json({ message: "Invalid session" });
+      return res.status(401).json({ message: "Unauthorized" });
     }
   }
 
