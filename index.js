@@ -1260,6 +1260,26 @@ async function run() {
     },
   );
 
+  app.post("/api/premium-subscribed", async (req, res) => {
+    try {
+      const { userEmail } = req.body;
+      await usersCollection.updateOne(
+        { email: userEmail },
+        {
+          $set: {
+            isPremium: true,
+            updatedAt: new Date(),
+          },
+        },
+      );
+      res.json({ ok: true, message: "Premium registered" });
+    } catch (error) {
+      res
+        .status(500)
+        .json({ ok: false, message: "Failed to mark as premium user" });
+    }
+  });
+
   console.log("Pinged your deployment. You successfully connected to MongoDB!");
 }
 run().catch(console.dir);
